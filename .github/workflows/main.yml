@@ -1,9 +1,9 @@
 name: Distributed Task Controller
 
 on:
+  repository_dispatch:
+    types: [run-task]
   workflow_dispatch:
-  schedule:
-    - cron: '0 * * * *'
 
 concurrency:
   group: process-group-${{ github.workflow }}-${{ github.ref }}
